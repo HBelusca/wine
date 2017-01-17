@@ -210,8 +210,8 @@ static IStreamVtbl iclvt =
 /* Function ptrs for ordinal calls */
 static HMODULE SHLWAPI_hshlwapi = 0;
 
-static void (WINAPI *pSHFreeDataBlockList)(DATABLOCK_HEADER *);
-static HRESULT (WINAPI *pSHAddDataBlock)(DATABLOCK_HEADER **, DATABLOCK_HEADER *);
+static VOID (WINAPI *pSHFreeDataBlockList)(DATABLOCK_HEADER *);
+static BOOL (WINAPI *pSHAddDataBlock)(DATABLOCK_HEADER **, DATABLOCK_HEADER *);
 static BOOL (WINAPI *pSHRemoveDataBlock)(DATABLOCK_HEADER **,ULONG);
 static DATABLOCK_HEADER *(WINAPI *pSHFindDataBlock)(DATABLOCK_HEADER *,ULONG);
 static HRESULT (WINAPI *pSHWriteDataBlockList)(IStream *, DATABLOCK_HEADER *);
