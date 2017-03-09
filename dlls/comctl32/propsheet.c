@@ -1529,8 +1529,8 @@ PROPSHEET_WizardSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
       return TRUE;
 
     case WM_CTLCOLORSTATIC:
-      SetBkColor((HDC)wParam, GetSysColor(COLOR_WINDOW));
-      return (INT_PTR)GetSysColorBrush(COLOR_WINDOW);
+      SetBkMode((HDC)wParam, TRANSPARENT);
+      return (INT_PTR)GetStockObject(HOLLOW_BRUSH);
   }
 
   return DefSubclassProc(hwnd, uMsg, wParam, lParam);
@@ -3395,7 +3395,7 @@ static LRESULT PROPSHEET_Paint(HWND hwnd, HDC hdcParam)
 
         hOldFont = SelectObject(hdc, psInfo->hFontBold);
 
-        if (psInfo->ppshheader.dwFlags & PSH_USEHBMHEADER)
+        if (psInfo->ppshheader.u5.hbmHeader)
         {
             hbmp = SelectObject(hdcSrc, psInfo->ppshheader.hbmHeader);
 
@@ -3472,7 +3472,8 @@ static LRESULT PROPSHEET_Paint(HWND hwnd, HDC hdcParam)
 
     if ( (flags & PSP_HIDEHEADER) &&
 	 (psInfo->ppshheader.dwFlags & (PSH_WIZARD97_OLD | PSH_WIZARD97_NEW)) &&
-	 (psInfo->ppshheader.dwFlags & PSH_WATERMARK) ) 
+	 (psInfo->ppshheader.dwFlags & PSH_WATERMARK) &&
+	 (psInfo->ppshheader.u4.hbmWatermark) ) 
     {
 	HWND hwndLine = GetDlgItem(hwnd, IDC_SUNKEN_LINE);	    
 
