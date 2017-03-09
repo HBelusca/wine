@@ -2557,7 +2557,8 @@ static BOOL PROPSHEET_RemovePage(HWND hwndDlg,
   }
 
   /* Destroy page dialog window */
-  DestroyWindow(psInfo->proppage[index].hwndPage);
+  if(psInfo->proppage[index].hwndPage)
+     DestroyWindow(psInfo->proppage[index].hwndPage);
 
   /* Free page resources */
   if(psInfo->proppage[index].hpage)
