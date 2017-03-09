@@ -2351,6 +2351,7 @@ static BOOL PROPSHEET_RemovePage(HWND hwndDlg,
   PropSheetInfo * psInfo = GetPropW(hwndDlg, PropSheetInfoStr);
   HWND hwndTabControl = GetDlgItem(hwndDlg, IDC_TABCONTROL);
   PropPageInfo* oldPages;
+  PROPSHEETPAGEW* psp;
 
   TRACE("index %d, hpage %p\n", index, hpage);
   if (!psInfo) {
@@ -2400,23 +2401,24 @@ static BOOL PROPSHEET_RemovePage(HWND hwndDlg,
   else if (index < psInfo->active_page)
     psInfo->active_page--;
 
+  psp = (PROPSHEETPAGEW*)psInfo->proppage[index].hpage;
+
   /* Unsubclass the page dialog window */
   if((psInfo->ppshheader.dwFlags & (PSH_WIZARD97_NEW | PSH_WIZARD97_OLD) &&
      (psInfo->ppshheader.dwFlags & PSH_WATERMARK) &&
-     ((PROPSHEETPAGEW*)psInfo->proppage[index].hpage)->dwFlags & PSP_HIDEHEADER))
+     (psp->dwFlags & PSP_HIDEHEADER))
   {
      RemoveWindowSubclass(psInfo->proppage[index].hwndPage,
                           PROPSHEET_WizardSubclassProc, 1);
   }
 
   /* Destroy page dialog window */
-  DestroyWindow(psInfo->proppage[index].hwndPage);
+  if(psInfo->proppage[index].hwndPage)
+     DestroyWindow(psInfo->proppage[index].hwndPage);
 
   /* Free page resources */
-  if(psInfo->proppage[index].hpage)
+  if(psp)
   {
-     PROPSHEETPAGEW* psp = (PROPSHEETPAGEW*)psInfo->proppage[index].hpage;
-
      if (psp->dwFlags & PSP_USETITLE)
         Free ((LPVOID)psInfo->proppage[index].pszText);
 
@@ -2715,7 +2717,7 @@ static void PROPSHEET_CleanUp(HWND hwndDlg)
 
   for (i = 0; i < psInfo->nPages; i++)
   {
-     PROPSHEETPAGEA* psp = (PROPSHEETPAGEA*)psInfo->proppage[i].hpage;
+     PROPSHEETPAGEW* psp = (PROPSHEETPAGEW*)psInfo->proppage[i].hpage;
 
      /* Unsubclass the page dialog window */
      if((psInfo->ppshheader.dwFlags & (PSH_WIZARD97_NEW | PSH_WIZARD97_OLD)) &&
