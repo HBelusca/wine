@@ -25,10 +25,12 @@
 
 #include "windef.h"
 #include "winbase.h"
+#include "wingdi.h"
 #include "winnls.h"
 #include "winuser.h"
 #include "winreg.h"
 #include "winsvc.h"
+#include "winspool.h"
 #include "setupapi.h"
 #include "shlobj.h"
 #include "fci.h"
@@ -1037,7 +1039,7 @@ static void check_dirid(int dirid, LPCSTR expected)
     }
 
     ok(ret == ERROR_SUCCESS, "Failed getting value for dirid %i, err=%ld\n", dirid, ret);
-    ok(!strcmp(actual, expected), "Expected path for dirid %i was \"%s\", got \"%s\"\n", dirid, expected, actual);
+    ok(!stricmp(actual, expected), "Expected path for dirid %i was \"%s\", got \"%s\"\n", dirid, expected, actual);
 
     ok_registry(TRUE);
     ret = DeleteFileA(inffile);
@@ -1048,6 +1050,8 @@ static void check_dirid(int dirid, LPCSTR expected)
 static void test_dirid(void)
 {
     char expected[MAX_PATH];
+    DWORD needed;
+    BOOL ret;
 
     check_dirid(DIRID_NULL, "");
 
@@ -1057,6 +1061,70 @@ static void test_dirid(void)
     GetSystemDirectoryA(expected, MAX_PATH);
     check_dirid(DIRID_SYSTEM, expected);
 
+    GetSystemDirectoryA(expected, MAX_PATH);
+    strcat(expected, "\\drivers");
+    check_dirid(DIRID_DRIVERS, expected);
+
+    GetWindowsDirectoryA(expected, MAX_PATH);
+    strcat(expected, "\\inf");
+    check_dirid(DIRID_INF, expected);
+
+    GetWindowsDirectoryA(expected, MAX_PATH);
+    strcat(expected, "\\help");
+    check_dirid(DIRID_HELP, expected);
+
+    GetWindowsDirectoryA(expected, MAX_PATH);
+    strcat(expected, "\\fonts");
+    check_dirid(DIRID_FONTS, expected);
+
+    GetSystemDirectoryA(expected, MAX_PATH);
+    strcat(expected, "\\viewers");
+    check_dirid(DIRID_VIEWERS, expected);
+
+    GetSystemDirectoryA(expected, MAX_PATH);
+    strcat(expected, "\\spool\\drivers\\color");
+    check_dirid(DIRID_COLOR, expected);
+
+    GetWindowsDirectoryA(expected, MAX_PATH);
+    expected[3] = 0;
+    check_dirid(DIRID_APPS, expected);
+
+    GetWindowsDirectoryA(expected, MAX_PATH);
+    check_dirid(DIRID_SHARED, expected);
+
+    // GetSystemDirectoryA(expected, MAX_PATH); /* FIXME! See DIRID_LOADER */
+    // expected[3] = 0;
+    // check_dirid(DIRID_BOOT, expected);
+
+    GetWindowsDirectoryA(expected, MAX_PATH);
+    strcat(expected, "\\system");
+    check_dirid(DIRID_SYSTEM16, expected);
+
+    GetSystemDirectoryA(expected, MAX_PATH);
+    strcat(expected, "\\spool");
+    check_dirid(DIRID_SPOOL, expected);
+
+    ret = GetPrinterDriverDirectoryA(NULL, NULL, 1, (LPBYTE)expected, sizeof(expected), &needed);
+    ok(ret, "cannot retrieve print driver directory\n");
+    check_dirid(DIRID_SPOOLDRIVERS, expected);
+
+    ret = (GetEnvironmentVariableA("USERPROFILE", expected, MAX_PATH) != 0);
+    ok(ret, "Cannot retrieve USERPROFILE environment variable\n");
+    check_dirid(DIRID_USERPROFILE, expected);
+
+    if (!SHGetSpecialFolderPathA(NULL, expected, CSIDL_PROFILE, TRUE))
+        FIXME("CSIDL %lx not found\n", CSIDL_PROFILE);
+    check_dirid(DIRID_USERPROFILE, expected);
+
+    // GetSystemDirectoryA(expected, MAX_PATH); /* FIXME! See DIRID_BOOT */
+    // expected[3] = 0;
+    // check_dirid(DIRID_LOADER, expected);
+
+    ret = GetPrintProcessorDirectoryA(NULL, NULL, 1, (LPBYTE)expected, sizeof(expected), &needed);
+    ok(ret, "cannot retrieve print processor directory\n");
+    check_dirid(DIRID_PRINTPROCESSOR, expected);
+
+    GetSystemDirectoryA(expected, MAX_PATH);
     strcat(expected, "\\unknown");
     check_dirid(40, expected);
 }
