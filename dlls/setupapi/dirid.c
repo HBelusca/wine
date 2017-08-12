@@ -117,17 +117,21 @@ static const WCHAR *create_system_dirid( int dirid )
         GetSystemDirectoryW( buffer, MAX_PATH );
         lstrcatW( buffer, L"\\viewers" );
         break;
-    case DIRID_COLOR:
+    case DIRID_COLOR: /* FIXME! See DIRID_SPOOLDRIVERS */
         GetSystemDirectoryW( buffer, MAX_PATH );
         lstrcatW( buffer, L"\\spool\\drivers\\color" );
         break;
     case DIRID_APPS:
-        return L"C:\\";  /* FIXME */
+        GetWindowsDirectoryW( buffer, MAX_PATH );
+        buffer[3] = 0;
+        break;
     case DIRID_SHARED:
         GetWindowsDirectoryW( buffer, MAX_PATH );
         break;
-    case DIRID_BOOT:
-        return L"C:\\";  /* FIXME */
+    case DIRID_BOOT: /* FIXME! See DIRID_LOADER */
+        GetSystemDirectoryW( buffer, MAX_PATH );
+        buffer[3] = 0;
+        break;
     case DIRID_SYSTEM16:
         GetWindowsDirectoryW( buffer, MAX_PATH );
         lstrcatW( buffer, L"\\system" );
@@ -137,18 +141,25 @@ static const WCHAR *create_system_dirid( int dirid )
         lstrcatW( buffer, L"\\spool" );
         break;
     case DIRID_SPOOLDRIVERS:
-        GetSystemDirectoryW( buffer, MAX_PATH );
-        lstrcatW( buffer, L"\\spool\\drivers" );
+        if (!GetPrinterDriverDirectoryW(NULL, NULL /*printer_env*/, 1, (LPBYTE)buffer, sizeof(buffer), &needed))
+        {
+            WARN( "cannot retrieve print driver directory\n" );
+            return get_unknown_dirid();
+        }
         break;
     case DIRID_USERPROFILE:
         if (GetEnvironmentVariableW( L"USERPROFILE", buffer, MAX_PATH )) break;
         return get_csidl_dir(CSIDL_PROFILE);
-    case DIRID_LOADER:
-        return L"C:\\";  /* FIXME */
-    case DIRID_PRINTPROCESSOR:
+    case DIRID_LOADER: /* FIXME! See DIRID_BOOT */
         GetSystemDirectoryW( buffer, MAX_PATH );
-        lstrcatW( buffer, L"\\spool\\prtprocs\\" );
-        lstrcatW( buffer, printer_env );
+        buffer[3] = 0;
+        break;
+    case DIRID_PRINTPROCESSOR:
+        if (!GetPrintProcessorDirectoryW(NULL, NULL /*printer_env*/, 1, (LPBYTE)buffer, sizeof(buffer), &needed))
+        {
+            WARN( "cannot retrieve print processor directory\n" );
+            return get_unknown_dirid();
+        }
         break;
     default:
         FIXME( "unknown dirid %d\n", dirid );
@@ -167,9 +178,11 @@ static const WCHAR *create_printer_dirid( DWORD dirid )
     switch (dirid)
     {
     case 66000:  /* printer driver */
-        GetSystemDirectoryW( buffer, MAX_PATH );
-        lstrcatW( buffer, L"\\spool\\drivers\\" );
-        lstrcatW( buffer, printer_env );
+        if (!GetPrinterDriverDirectoryW(NULL, printer_env, 1, (LPBYTE)buffer, sizeof(buffer), &needed))
+        {
+            WARN( "cannot retrieve print driver directory\n" );
+            return get_unknown_dirid();
+        }
         break;
     case 66001:  /* print processor */
         return create_system_dirid( DIRID_PRINTPROCESSOR );
