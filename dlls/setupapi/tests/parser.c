@@ -71,15 +71,15 @@ static const char tmpfilename[] = ".\\tmp.inf";
                     "verybig=" A1200 "\n"
 
 /* create a new file with specified contents and open it */
-static HINF test_file_contents( const char *data, int size, UINT *err_line )
+static HINF test_file_contents( const char *data, int size, DWORD inf_style, UINT *err_line )
 {
     DWORD res;
     HANDLE handle = CreateFileA( tmpfilename, GENERIC_READ|GENERIC_WRITE,
                                  FILE_SHARE_READ|FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, 0, 0 );
-    if (handle == INVALID_HANDLE_VALUE) return 0;
+    if (handle == INVALID_HANDLE_VALUE) return INVALID_HANDLE_VALUE;
     if (!WriteFile( handle, data, size, &res, NULL )) trace( "write error\n" );
     CloseHandle( handle );
-    return SetupOpenInfFileA( tmpfilename, 0, INF_STYLE_WIN4, err_line );
+    return SetupOpenInfFileA( tmpfilename, 0, inf_style, err_line );
 }
 
 static const char *get_string_field( INFCONTEXT *context, DWORD index )
@@ -162,7 +162,7 @@ static void test_invalid_files(void)
     {
         SetLastError( 0xdeadbeef );
         err_line = 0xdeadbeef;
-        hinf = test_file_contents( invalid_files[i].data, invalid_files[i].data_size, &err_line );
+        hinf = test_file_contents( invalid_files[i].data, invalid_files[i].data_size, INF_STYLE_WIN4, &err_line );
         err = GetLastError();
         trace( "hinf=%p err=0x%lx line=%d\n", hinf, err, err_line );
         if (invalid_files[i].error)  /* should fail */
@@ -239,7 +239,7 @@ static void test_section_names(void)
     for (i = 0; i < ARRAY_SIZE(section_names); i++)
     {
         SetLastError( 0xdeadbeef );
-        hinf = test_file_contents( section_names[i].data, strlen(section_names[i].data), &err_line );
+        hinf = test_file_contents( section_names[i].data, strlen(section_names[i].data), INF_STYLE_WIN4, &err_line );
         ok( hinf != INVALID_HANDLE_VALUE, "line %u: open failed err %lu\n", i, GetLastError() );
         if (hinf == INVALID_HANDLE_VALUE) continue;
 
@@ -278,8 +278,9 @@ static void test_enum_sections(void)
         return;
     }
 
-    hinf = test_file_contents( contents, strlen(contents), &err );
-    ok( hinf != NULL, "Expected valid INF file\n" );
+    hinf = test_file_contents( contents, strlen(contents), INF_STYLE_WIN4, &err );
+    ok( hinf != INVALID_HANDLE_VALUE, "Expected valid INF file\n" );
+    if (hinf == INVALID_HANDLE_VALUE) return;
 
     for (index = 0; ; index++)
     {
@@ -311,15 +312,96 @@ static void test_enum_sections(void)
 
 /* Test various key and value names */
 
-static const struct
+typedef struct
 {
     const char *data;
     int data_size;
     const char *key;
     const char *fields[10];
-} key_names[] =
-{
+} key_names_t;
+
 #define C(s) s, sizeof(s)-1
+
+static const key_names_t
+key_names_oldnt[] =
+{
+/* file contents            expected key       expected fields */
+ { C("ab=cd"),                "ab",            { "cd" } },
+ { C("ab=cd,ef,gh,ij"),       "ab",            { "cd", "ef", "gh", "ij" } },
+ { C("ab"),                   "ab",            { "ab" } },
+ { C("ab,cd"),                NULL,            { "ab", "cd" } },
+ { C("ab,cd=ef"),             NULL,            { "ab", "cd" } },
+// { C("=abcd,ef"),             "",              { "abcd", "ef" } },       // SetupFindFirstLine failure
+ /* backslashes */
+ { C("ba\\\ncd=ef"),          "ba\\",          { "ba\\" } },
+ { C("ab  \\  \ncd=ef"),      "cd",            { "ef" } },
+ { C("ab\\\ncd,ef"),          "ab\\",          { "ab\\" } },
+ { C("ab  \\ ;cc\ncd=ef"),    "cd",            { "ef" } },
+ { C("ab \\ \\ \ncd=ef"),     "cd",            { "ef" } },
+// { C("ba \\ dc=xx"),          "ba \\ dc",      { "xx" } },               // SetupFindFirstLine failure
+ { C("ba \\\\ \nc=d"),        "c",             { "d" } },
+ { C("a=b\\\\c"),             "a",             { "b\\\\c" } },
+ { C("ab=cd \\ "),            "ab",            { "cd" } },
+ { C("ba=c \\ \n \\ \n a"),   "ba",            { "c" } },
+ { C("ba=c \\ \n \\ a"),      "ba",            { "c" } },
+// { C("  \\ a= \\ b"),         "\\ a",          { "\\ b" } },
+ /* quotes */
+// { C("Ab\"Cd\"=Ef"),          "AbCd",          { "Ef" } },               // SetupFindFirstLine failure
+// { C("Ab\"Cd=Ef\""),          "AbCd=Ef",       { "AbCd=Ef" } },          // SetupFindFirstLine failure
+// { C("ab\"\"\"cd,ef=gh\""),   "ab\"cd,ef=gh",  { "ab\"cd,ef=gh" } },     // SetupFindFirstLine failure
+// { C("ab\"\"cd=ef"),          "abcd",          { "ef" } },               // SetupFindFirstLine failure
+// { C("ab\"\"cd=ef,gh"),       "abcd",          { "ef", "gh" } },         // SetupFindFirstLine failure
+ { C("ab=cd\"\"ef"),          "ab",            { "cd" } },
+ { C("ab=cd\",\"ef"),         "ab",            { "cd" } },
+ { C("ab=cd\",ef"),           "ab",            { "cd" } },
+ { C("ab=cd\",ef\\\nab"),     "ab",            { "cd" } },
+
+ /* single quotes (unhandled)*/
+ { C("HKLM,A,B,'C',D"),       NULL,            { "HKLM", "A","B","'C'","D" } },
+ /* spaces */
+// { C(" a b = c , d \n"),      "a b",           { "c", "d" } },           // SetupFindFirstLine failure
+// { C(" a b = c ,\" d\" \n"),  "a b",           { "c", " d" } },          // SetupFindFirstLine failure
+// { C(" a b\r = c\r\n"),       "a b",           { "c" } },                // SetupFindFirstLine failure
+ /* empty fields */
+ { C("a=b,,,c,,,d"),          "a",             { "b", "", "", "c", "", "", "d" } },
+ { C("a=b,\"\",c,\" \",d"),   "a",             { "b", "", "c", " ", "d" } },
+// { C("=,,b"),                 "",              { "", "", "b" } },        // SetupFindFirstLine failure
+// { C(",=,,b"),                NULL,            { "", "=", "", "b" } },   // SetupFindFirstLine failure
+ { C("a=\n"),                 "a",             { "" } },
+// { C("="),                    "",              { "" } },                 // SetupFindFirstLine failure
+ /* eof */
+ { C("ab=c\032d"),            "ab",            { "c" } },
+ { C("ab\032=cd"),            "ab",            { "ab" } },
+ /* nulls */
+ { C("abcd=ef\x0gh"),         "abcd",          { "ef" } },
+ /* multiple sections with same name */
+// { C("[Test2]\nab\n[Test]\nee=ff\n"),  "ee",    { "ff" } },              // SetupFindFirstLine failure
+ /* string substitution is NOT performed in OLDNT style! */
+ { C("%foo%=%bar%\n" STR_SECTION),     "%foo%",       { "%bar%" } },
+ { C("%foo%xx=%bar%yy\n" STR_SECTION), "%foo%xx",     { "%bar%yy" } },
+// { C("%% %foo%=%bar%\n" STR_SECTION),  "%% %foo%",    { "%bar%" } },     // SetupFindFirstLine failure
+// { C("%f\"o\"o%=ccc\n" STR_SECTION),   "%f\"o\"o%",   { "ccc" } },       // SetupFindFirstLine failure
+ { C("abc=%bar;bla%\n" STR_SECTION),   "abc",         { "%bar;bla%" } },
+ { C("loop=%loop%\n" STR_SECTION),     "loop",        { "%loop%" } },
+ { C("%per%%cent%=100\n" STR_SECTION), "%per%%cent%", { "100" } },
+ { C("a=%big%\n" STR_SECTION),         "a",           { "%big%" } },
+ { C("a=%verybig%\n" STR_SECTION),     "a",           { "%verybig%" } },
+ { C("a=%big%%big%%big%%big%\n" STR_SECTION),   "a",  { "%big%%big%%big%%big%" } },
+
+ /* Prove expansion of system entries removes extra \'s and string
+    replacements doesn't                                            */
+ { C("ab=\"%24%\"\n" STR_SECTION),           "ab", { "%24%" } },
+ { C("ab=\"%mydrive%\"\n" STR_SECTION),      "ab", { "%mydrive%" } },
+ { C("ab=\"%24%\\fred\"\n" STR_SECTION),     "ab", { "%24%\\fred" } },
+ { C("ab=\"%mydrive%\\fred\"\n" STR_SECTION),"ab", { "%mydrive%\\fred" } },
+ /* Confirm duplicate \'s kept */
+ { C("ab=\"%24%\\\\fred\""),      "ab",            { "%24%\\\\fred" } },
+ { C("ab=C:\\\\FRED"),            "ab",            { "C:\\\\FRED" } },
+};
+
+static const key_names_t
+key_names_win4[] =
+{
 /* file contents            expected key       expected fields */
  { C("ab=cd"),                "ab",            { "cd" } },
  { C("ab=cd,ef,gh,ij"),       "ab",            { "cd", "ef", "gh", "ij" } },
@@ -400,25 +482,27 @@ static const struct
 };
 
 /* check the key of a certain line */
-static const char *check_key( INFCONTEXT *context, const char *wanted )
+static const char *check_key( INFCONTEXT *context, UINT i, const char *wanted )
 {
     const char *key = get_string_field( context, 0 );
     DWORD err = GetLastError();
 
     if (!key)
     {
-        ok( !wanted, "missing key %s\n", wanted );
+        ok( !wanted, "line %u: missing key %s\n", i, wanted );
         ok( err == 0 || err == ERROR_INVALID_PARAMETER, "last error set to %lu\n", err );
     }
     else
     {
-        ok( !strcmp( key, wanted ), "bad key %s/%s\n", key, wanted );
+        ok( !!wanted, "line %u: unexpected key found: %s\n", i, key );
+        ok( wanted && !strcmp( key, wanted ), "line %u: bad key %s/%s\n",
+            i, key, wanted ? wanted : "(null)" );
         ok( err == 0, "last error set to %lu\n", err );
     }
     return key;
 }
 
-static void test_key_names(void)
+static void test_key_names(BOOL bUseOldNTInfStyle)
 {
     char buffer[MAX_INF_STRING_LENGTH+32];
     const char *line;
@@ -428,17 +512,40 @@ static void test_key_names(void)
     DWORD err;
     BOOL ret;
     INFCONTEXT context;
+    const key_names_t *key_names;
+    size_t key_names_size;
 
-    for (i = 0; i < ARRAY_SIZE(key_names); i++)
+    if (bUseOldNTInfStyle)
+    {
+        trace( "test_key_names -- Using OLDNT style tests\n" );
+        key_names = key_names_oldnt;
+        key_names_size = ARRAY_SIZE(key_names_oldnt);
+    }
+    else
+    {
+        trace( "test_key_names -- Using WIN4 style tests\n" );
+        key_names = key_names_win4;
+        key_names_size = ARRAY_SIZE(key_names_win4);
+    }
+
+    for (i = 0; i < key_names_size; i++)
     {
         int data_size;
 
-        strcpy( buffer, STD_HEADER "[Test]\n" );
+        if (bUseOldNTInfStyle)
+            strcpy( buffer, "[Test]\n" );
+        else
+            strcpy( buffer, STD_HEADER "[Test]\n" );
+
         data_size = strlen(buffer);
         memcpy( buffer + data_size, key_names[i].data, key_names[i].data_size );
         data_size += key_names[i].data_size;
+
         SetLastError( 0xdeadbeef );
-        hinf = test_file_contents( buffer, data_size, &err_line );
+        hinf = test_file_contents( buffer, data_size,
+                                   bUseOldNTInfStyle ? INF_STYLE_OLDNT
+                                                     : INF_STYLE_WIN4,
+                                   &err_line );
         ok( hinf != INVALID_HANDLE_VALUE, "line %u: open failed err %lu\n", i, GetLastError() );
         if (hinf == INVALID_HANDLE_VALUE) continue;
 
@@ -453,14 +560,14 @@ static void test_key_names(void)
         }
 
         ret = SetupFindFirstLineA( hinf, "Test", 0, &context );
-        ok(ret, "SetupFindFirstLineA failed: le=%lu\n", GetLastError());
+        ok(ret, "line %u: SetupFindFirstLineA failed: le=%lu\n", i, GetLastError());
         if (!ret)
         {
             SetupCloseInfFile( hinf );
             continue;
         }
 
-        check_key( &context, key_names[i].key );
+        check_key( &context, i, key_names[i].key );
 
         buffer[0] = buffer[1] = 0;  /* build the full line */
         for (index = 0; ; index++)
@@ -532,26 +639,62 @@ static void test_close_inf_file(void)
         "Expected 0xdeadbeef, got %lu\n", GetLastError());
 }
 
-static const char *contents = "[Version]\n"
-                              "Signature=\"$Windows NT$\"\n"
-                              "FileVersion=5.1.1.2\n"
-                              "[FileBranchInfo]\n"
-                              "RTMQFE=\"%RTMGFE_NAME%\",SP1RTM,"A4097"\n"
-                              "[Strings]\n"
-                              "RTMQFE_NAME = \"RTMQFE\"\n";
+static const char *contents_oldnt =
+    "[FileBranchInfo]\n"
+    "RTMQFE=\"%RTMQFE_NAME%\",SP1RTM\n" // We will test whether the string is substituted
+    "[Strings]\n"
+    "RTMQFE_NAME = \"RTMQFE\"\n";
 
-static const CHAR getfield_resA[][20] =
+static const CHAR oldnt_getfield_resA[][20] =
 {
     "RTMQFE",
+    "%RTMQFE_NAME%",
+    "SP1RTM",
+};
+
+static const WCHAR oldnt_getfield_resW[][20] =
+{
+    {'R','T','M','Q','F','E',0},
+    {'%','R','T','M','Q','F','E','_','N','A','M','E','%',0},
+    {'S','P','1','R','T','M',0},
+};
+
+static const char *contents_win4 =
+    "[Version]\n"
+    "Signature=\"$Windows NT$\"\n"
+    "FileVersion=5.1.1.2\n"
+    "[FileBranchInfo]\n"
+    "RTMGFE=\"%RTMGFE_NAME%\",SP1RTM,"A4097"\n" // Note that "RTMGFE_NAME" differs from "RTMQFE_NAME"
+    "RTMQFE=\"%RTMQFE_NAME%\",SP2RTM\n"         // Here we really use "RTMQFE_NAME" string substitution
+    "[Strings]\n"
+    "RTMQFE_NAME = \"RTMQFE\"\n";
+
+static const CHAR win4_l1_getfield_resA[][20] =
+{
+    "RTMGFE",
     "%RTMGFE_NAME%",
     "SP1RTM",
 };
 
-static const WCHAR getfield_resW[][20] =
+static const WCHAR win4_l1_getfield_resW[][20] =
 {
-    {'R','T','M','Q','F','E',0},
+    {'R','T','M','G','F','E',0},
     {'%','R','T','M','G','F','E','_','N','A','M','E','%',0},
     {'S','P','1','R','T','M',0},
+};
+
+static const CHAR win4_l2_getfield_resA[][20] =
+{
+    "RTMQFE",
+    "RTMQFE",
+    "SP2RTM",
+};
+
+static const WCHAR win4_l2_getfield_resW[][20] =
+{
+    {'R','T','M','Q','F','E',0},
+    {'R','T','M','Q','F','E',0},
+    {'S','P','2','R','T','M',0},
 };
 
 static void test_pSetupGetField(void)
@@ -574,8 +717,41 @@ static void test_pSetupGetField(void)
         unicode = FALSE;
     }
 
-    hinf = test_file_contents( contents, strlen(contents), &err );
-    ok( hinf != NULL, "Expected valid INF file\n" );
+    /*
+     * Testing OLDNT-style INF file
+     */
+    hinf = test_file_contents( contents_oldnt, strlen(contents_oldnt), INF_STYLE_OLDNT, &err );
+    ok( hinf != INVALID_HANDLE_VALUE, "Expected valid INF file\n" );
+    if (hinf == INVALID_HANDLE_VALUE) goto Continue;
+
+    ret = SetupFindFirstLineA( hinf, "FileBranchInfo", NULL, &context );
+    ok( ret, "Failed to find first line\n" );
+
+    for ( i = 0; i < 3; i++ )
+    {
+        if (unicode)
+        {
+            fieldW = pSetupGetFieldW( &context, i );
+            ok( fieldW != NULL, "Failed to get field %i\n", i );
+            ok( !lstrcmpW( oldnt_getfield_resW[i], fieldW ), "Wrong string returned\n" );
+        }
+        else
+        {
+            fieldA = pSetupGetFieldA( &context, i );
+            ok( fieldA != NULL, "Failed to get field %i\n", i );
+            ok( !lstrcmpA( oldnt_getfield_resA[i], fieldA ), "Wrong string returned\n" );
+        }
+    }
+
+    SetupCloseInfFile( hinf );
+
+Continue:
+    /*
+     * Testing WIN4-style INF file
+     */
+    hinf = test_file_contents( contents_win4, strlen(contents_win4), INF_STYLE_WIN4, &err );
+    ok( hinf != INVALID_HANDLE_VALUE, "Expected valid INF file\n" );
+    if (hinf == INVALID_HANDLE_VALUE) return;
 
     ret = SetupFindFirstLineA( hinf, "FileBranchInfo", NULL, &context );
     ok( ret, "Failed to find first line\n" );
@@ -588,13 +764,13 @@ static void test_pSetupGetField(void)
         {
             fieldW = pSetupGetFieldW( &context, i );
             ok( fieldW != NULL, "Failed to get field %i\n", i );
-            ok( !lstrcmpW( getfield_resW[i], fieldW ), "Wrong string returned\n" );
+            ok( !lstrcmpW( win4_l1_getfield_resW[i], fieldW ), "Wrong string returned\n" );
         }
         else
         {
             fieldA = pSetupGetFieldA( &context, i );
             ok( fieldA != NULL, "Failed to get field %i\n", i );
-            ok( !lstrcmpA( getfield_resA[i], fieldA ), "Wrong string returned\n" );
+            ok( !lstrcmpA( win4_l1_getfield_resA[i], fieldA ), "Wrong string returned\n" );
         }
     }
 
@@ -624,6 +800,25 @@ static void test_pSetupGetField(void)
         ok( fieldA == NULL, "Expected NULL, got %p\n", fieldA );
         ok( GetLastError() == ERROR_INVALID_PARAMETER,
             "Expected ERROR_INVALID_PARAMETER, got %lu\n", GetLastError() );
+    }
+
+    /* Go to the next line and check again the string substitutions with pSetupGetField */
+    ret = SetupFindNextLine(&context, &context);
+    ok(ret, "Failed to find next line\n");
+    for ( i = 0; i < 3; i++ )
+    {
+        if (unicode)
+        {
+            fieldW = pSetupGetFieldW( &context, i );
+            ok( fieldW != NULL, "Failed to get field %i\n", i );
+            ok( !lstrcmpW( win4_l2_getfield_resW[i], fieldW ), "Wrong string returned\n" );
+        }
+        else
+        {
+            fieldA = pSetupGetFieldA( &context, i );
+            ok( fieldA != NULL, "Failed to get field %i\n", i );
+            ok( !lstrcmpA( win4_l2_getfield_resA[i], fieldA ), "Wrong string returned\n" );
+        }
     }
 
     SetupCloseInfFile( hinf );
@@ -665,8 +860,9 @@ static void test_SetupGetIntField(void)
         strcat( buffer, keys[i].key );
         strcat( buffer, "=" );
         strcat( buffer, keys[i].fields );
-        hinf = test_file_contents( buffer, strlen(buffer), &err);
-        ok( hinf != NULL, "Expected valid INF file\n" );
+        hinf = test_file_contents( buffer, strlen(buffer), INF_STYLE_WIN4, &err);
+        ok( hinf != INVALID_HANDLE_VALUE, "line %u: open failed err %lu\n", i, GetLastError() );
+        if (hinf == INVALID_HANDLE_VALUE) continue;
 
         SetupFindFirstLineA( hinf, "TestSection", keys[i].key, &context );
         SetLastError( 0xdeadbeef );
@@ -709,8 +905,9 @@ static void test_GLE(void)
     int bufsize = MAX_INF_STRING_LENGTH;
     DWORD retsize;
 
-    hinf = test_file_contents( inf, strlen(inf), &err );
-    ok( hinf != NULL, "Expected valid INF file\n" );
+    hinf = test_file_contents( inf, strlen(inf), INF_STYLE_WIN4, &err );
+    ok( hinf != INVALID_HANDLE_VALUE, "Expected valid INF file\n" );
+    if (hinf == INVALID_HANDLE_VALUE) return;
 
     SetLastError(0xdeadbeef);
     retb = SetupFindFirstLineA( hinf, "ImNotThere", NULL, &context );
@@ -811,7 +1008,8 @@ START_TEST(parser)
     test_invalid_files();
     test_section_names();
     test_enum_sections();
-    test_key_names();
+    test_key_names(TRUE);
+    test_key_names(FALSE);
     test_close_inf_file();
     test_pSetupGetField();
     test_SetupGetIntField();
